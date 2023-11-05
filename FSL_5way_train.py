@@ -12,7 +12,7 @@ import torch.nn.functional as F
 from torch.autograd import Variable
 from torch.optim.lr_scheduler import StepLR
 import numpy as np
-import task_generator_test as tg
+import task_generator as tg
 import os
 import math
 import argparse
@@ -24,8 +24,8 @@ parser.add_argument("-f","--feature_dim",type = int, default = 64)
 parser.add_argument("-r","--relation_dim",type = int, default = 8)
 parser.add_argument("-w","--class_num",type = int, default = 5)
 parser.add_argument("-s","--sample_num_per_class",type = int, default = 1)
-parser.add_argument("-b","--batch_num_per_class",type = int, default = 10)
-parser.add_argument("-e","--episode",type = int, default= 10)
+parser.add_argument("-b","--batch_num_per_class",type = int, default = 15)
+parser.add_argument("-e","--episode",type = int, default= 100000)
 parser.add_argument("-t","--test_episode", type = int, default = 600)
 parser.add_argument("-l","--learning_rate", type = float, default = 0.001)
 parser.add_argument("-g","--gpu",type=int, default=0)
@@ -51,7 +51,6 @@ def mean_confidence_interval(data, confidence=0.95):
     m, se = np.mean(a), scipy.stats.sem(a)
     h = se * sp.stats.t._ppf((1+confidence)/2., n-1)
     return m,h
-
 
 class CNNEncoder(nn.Module):
     """docstring for ClassName"""
@@ -134,48 +133,144 @@ def main():
     print("init neural networks")
 
     feature_encoder = CNNEncoder()
+    #for param in feature_encoder.parameters():
+    #    param.requires_grad=False
     relation_network = RelationNetwork(FEATURE_DIM,RELATION_DIM)
 
+    feature_encoder.apply(weights_init)
+    relation_network.apply(weights_init)
 
     feature_encoder.cuda(GPU)
     relation_network.cuda(GPU)
 
+    feature_encoder_optim = torch.optim.Adam(feature_encoder.parameters(),lr=LEARNING_RATE)
+    feature_encoder_scheduler = StepLR(feature_encoder_optim,step_size=100000,gamma=0.5)
+    relation_network_optim = torch.optim.Adam(relation_network.parameters(),lr=LEARNING_RATE)
+    relation_network_scheduler = StepLR(relation_network_optim,step_size=100000,gamma=0.5)
 
     if os.path.exists(str("./models/miniimagenet_feature_encoder_" + str(CLASS_NUM) +"way_" + str(SAMPLE_NUM_PER_CLASS) +"shot.pkl")):
         feature_encoder.load_state_dict(torch.load(str("./models/miniimagenet_feature_encoder_" + str(CLASS_NUM) +"way_" + str(SAMPLE_NUM_PER_CLASS) +"shot.pkl"),map_location='cuda:0'))
         print("load feature encoder success")
+    
     if os.path.exists(str("./models/miniimagenet_relation_network_"+ str(CLASS_NUM) +"way_" + str(SAMPLE_NUM_PER_CLASS) +"shot.pkl")):
         relation_network.load_state_dict(torch.load(str("./models/miniimagenet_relation_network_"+ str(CLASS_NUM) +"way_" + str(SAMPLE_NUM_PER_CLASS) +"shot.pkl"),map_location='cuda:0'))
         print("load relation network success")
-
     # Step 3: build graph
-    #f=open("/content/drive/MyDrive/class_based_acc.txt","w")
-    f=open("/content/drive/MyDrive/class_based_acc_5way_test.txt","w")
+    print("Training...")
 
-    total_accuracy = 0.0
+    last_accuracy = 0.0
+    f=open("/content/drive/MyDrive/class_based_acc_5way_train.txt","w")
+    g=open("/content/drive/MyDrive/loss_epoch_5way.txt","w")
+
     for episode in range(EPISODE):
+
+        
+        feature_encoder_scheduler.step()
+        relation_network_scheduler.step()
+
+        # init dataset
+        # sample_dataloader is to obtain previous samples for compare
+        # batch_dataloader is to batch samples for training
+        task = tg.MiniImagenetTask(metatrain_folders,CLASS_NUM,SAMPLE_NUM_PER_CLASS,BATCH_NUM_PER_CLASS)
+        #print(task.labels)
+        sample_dataloader = tg.get_mini_imagenet_data_loader(task,num_per_class=SAMPLE_NUM_PER_CLASS,split="train",shuffle=False)
+        batch_dataloader = tg.get_mini_imagenet_data_loader(task,num_per_class=BATCH_NUM_PER_CLASS,split="test",shuffle=True)
+
+        # sample datas
+        samples,sample_labels = next(iter(sample_dataloader))
+        batches,batch_labels = next(iter(batch_dataloader))
+
+        # calculate features
+        sample_features = feature_encoder(Variable(samples).cuda(GPU)) # 5x64*5*5
+        batch_features = feature_encoder(Variable(batches).cuda(GPU)) # 20x64*5*5
+
+        # calculate relations
+        # each batch sample link to every samples to calculate relations
+        # to form a 100x128 matrix for relation network
+        sample_features_ext = sample_features.unsqueeze(0).repeat(BATCH_NUM_PER_CLASS*CLASS_NUM,1,1,1,1)
+        batch_features_ext = batch_features.unsqueeze(0).repeat(SAMPLE_NUM_PER_CLASS*CLASS_NUM,1,1,1,1)
+        batch_features_ext = torch.transpose(batch_features_ext,0,1)
+        relation_pairs = torch.cat((sample_features_ext,batch_features_ext),2).view(-1,FEATURE_DIM*2,19,19)
+        relations = relation_network(relation_pairs).view(-1,CLASS_NUM*SAMPLE_NUM_PER_CLASS)
+
+        mse = nn.MSELoss().cuda(GPU)
+        one_hot_labels = Variable(torch.zeros(BATCH_NUM_PER_CLASS*CLASS_NUM, CLASS_NUM).scatter_(1, batch_labels.view(-1,1), 1)).cuda(GPU)#dim=0 or 1
+        #print(relations)
+        _,predict_labels = torch.max(relations.data,1)
+        #print(predict_labels)
+
+        #print(one_hot_labels)
+        loss = mse(relations,one_hot_labels)
+        #print("loss: ",float(loss))
+        
+        counter_four=0
+        counter_three=0
+        counter_two=0
+        counter_one=0
+        counter_zero=0
+        
+
+        for j in range(len(predict_labels)):
+          if predict_labels[j]==one_hot_labels[j][1]:
+            if predict_labels[j]==0:
+                counter_zero+=1
+            elif predict_labels[j]==1:
+                counter_one+=1
+            elif predict_labels[j]==2:
+                counter_two+=1
+            elif predict_labels[j]==3:
+                counter_three+=1
+            elif predict_labels[j]==4:
+                counter_four+=1
+            
+
+        #print("true zeros: ",counter_zero)
+        #print("true ones: ",counter_one)
+        
+        f.write(list(task.labels.keys())[0].split("/")[4]+"/"+str(counter_zero)+"/15\n")
+        f.write(list(task.labels.keys())[1].split("/")[4]+"/"+str(counter_one)+"/15\n")
+        f.write(list(task.labels.keys())[2].split("/")[4]+"/"+str(counter_two)+"/15\n")
+        f.write(list(task.labels.keys())[3].split("/")[4]+"/"+str(counter_three)+"/15\n")
+        f.write(list(task.labels.keys())[4].split("/")[4]+"/"+str(counter_four)+"/15\n")
+        g.write(str(episode)+","+str(float(loss))+"\n")
+        #print(sample_labels)
+        #print(batch_labels)
+        #print(one_hot_labels)
+        # training
+        
+        #print(relations)
+        #print(sample_labels)
+        #print(batch_labels)
+      
+        feature_encoder.zero_grad()
+        relation_network.zero_grad()
+
+        loss.backward()
+
+        torch.nn.utils.clip_grad_norm(feature_encoder.parameters(),0.5)
+        torch.nn.utils.clip_grad_norm(relation_network.parameters(),0.5)
+
+        feature_encoder_optim.step()
+        relation_network_optim.step()
+
+
+        if (episode+1)%100 == 0:
+                print("episode:",episode+1,"loss",loss)
+        
+        if episode%5000 == 0:
 
             # test
             print("Testing...")
-
             accuracies = []
             for i in range(TEST_EPISODE):
-                
-                total_one_counter=0
-                total_zero_counter=0
                 total_rewards = 0
                 counter = 0
-                task = tg.MiniImagenetTask(metatrain_folders,CLASS_NUM,1,15)
-                #task = tg.MiniImagenetTask(metatest_folders,CLASS_NUM,1,15)
-                #print(task.labels)
+                task = tg.MiniImagenetTask(metatest_folders,CLASS_NUM,1,15)
                 sample_dataloader = tg.get_mini_imagenet_data_loader(task,num_per_class=1,split="train",shuffle=False)
-                
 
                 num_per_class = 3
-                #test_dataloader = tg.get_mini_imagenet_data_loader(task,num_per_class=num_per_class,split="train",shuffle=True)
                 test_dataloader = tg.get_mini_imagenet_data_loader(task,num_per_class=num_per_class,split="test",shuffle=True)
                 sample_images,sample_labels = next(iter(sample_dataloader))
-                #print(sample_labels)
                 for test_images,test_labels in test_dataloader:
                     batch_size = test_labels.shape[0]
                     # calculate features
@@ -192,50 +287,31 @@ def main():
                     relations = relation_network(relation_pairs).view(-1,CLASS_NUM)
 
                     _,predict_labels = torch.max(relations.data,1)
+                    #print(predict_labels)
                     #print(test_labels)
-
-                    rewards=[]
-                    counter_one=0
-                    counter_zero=0
-                    for j in range(batch_size):
-                      if predict_labels[j]==test_labels[j]:
-                        rewards.append(1)
-                        if predict_labels[j]==0:
-                          counter_zero+=1
-                        elif predict_labels[j]==1:
-                          counter_one+=1
-                      else:
-                        rewards.append(0)
-                    #print("true zeros: ",counter_zero)
-                    #print("true ones: ",counter_one)
-                    total_one_counter+=counter_one
-                    total_zero_counter+=counter_zero
-
-
-
-                    #rewards = [1 if predict_labels[j]==test_labels[j] else 0 for j in range(batch_size)]
+                    rewards = [1 if predict_labels[j]==test_labels[j] else 0 for j in range(batch_size)]
 
                     total_rewards += np.sum(rewards)
-                    #print(total_rewards)
                     counter += batch_size
-                #print("total: ",counter)
-                #print(list(task.labels.keys())[0].split("/")[4],"total zeros: ",total_zero_counter,15)
-                #print(list(task.labels.keys())[1].split("/")[4],"total ones: ",total_one_counter,15)
-                f.write(list(task.labels.keys())[0].split("/")[4]+"/"+str(total_zero_counter)+"/"+str(counter/2)+"\n")
-                f.write(list(task.labels.keys())[1].split("/")[4]+"/"+str(total_one_counter)+"/"+str(counter/2)+"\n")
                 accuracy = total_rewards/1.0/counter
                 accuracies.append(accuracy)
-
+            
             test_accuracy,h = mean_confidence_interval(accuracies)
 
             print("test accuracy:",test_accuracy,"h:",h)
 
-            total_accuracy += test_accuracy
+            if test_accuracy >= last_accuracy:
 
-    print("aver_accuracy:",total_accuracy/EPISODE)
+                # save networks
+                torch.save(feature_encoder.state_dict(),str("/content/drive/MyDrive/miniimagenet_feature_encoder_" + str(CLASS_NUM) +"way_" + str(SAMPLE_NUM_PER_CLASS) +"shot.pkl"))
+                torch.save(relation_network.state_dict(),str("/content/drive/MyDrive/miniimagenet_relation_network_"+ str(CLASS_NUM) +"way_" + str(SAMPLE_NUM_PER_CLASS) +"shot.pkl"))
+
+                print("save networks for episode:",episode)
+
+                last_accuracy = test_accuracy
+            
     f.close()
-
-
+    g.close()
 
 
 

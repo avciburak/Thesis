@@ -148,17 +148,19 @@ def main():
     relation_network_optim = torch.optim.Adam(relation_network.parameters(),lr=LEARNING_RATE)
     relation_network_scheduler = StepLR(relation_network_optim,step_size=100000,gamma=0.5)
 
-    if os.path.exists(str("./models/miniimagenet_feature_encoder_" + str(CLASS_NUM+3) +"way_" + str(SAMPLE_NUM_PER_CLASS) +"shot.pkl")):
-        feature_encoder.load_state_dict(torch.load(str("./models/miniimagenet_feature_encoder_" + str(CLASS_NUM+3) +"way_" + str(SAMPLE_NUM_PER_CLASS) +"shot.pkl"),map_location='cuda:0'))
+    if os.path.exists(str("./models/miniimagenet_feature_encoder_" + str(CLASS_NUM) +"way_" + str(SAMPLE_NUM_PER_CLASS) +"shot.pkl")):
+        feature_encoder.load_state_dict(torch.load(str("./models/miniimagenet_feature_encoder_" + str(CLASS_NUM) +"way_" + str(SAMPLE_NUM_PER_CLASS) +"shot.pkl"),map_location='cuda:0'))
         print("load feature encoder success")
     
-    if os.path.exists(str("./models/miniimagenet_relation_network_"+ str(CLASS_NUM+3) +"way_" + str(SAMPLE_NUM_PER_CLASS) +"shot.pkl")):
-        relation_network.load_state_dict(torch.load(str("./models/miniimagenet_relation_network_"+ str(CLASS_NUM+3) +"way_" + str(SAMPLE_NUM_PER_CLASS) +"shot.pkl"),map_location='cuda:0'))
+    if os.path.exists(str("./models/miniimagenet_relation_network_"+ str(CLASS_NUM) +"way_" + str(SAMPLE_NUM_PER_CLASS) +"shot.pkl")):
+        relation_network.load_state_dict(torch.load(str("./models/miniimagenet_relation_network_"+ str(CLASS_NUM) +"way_" + str(SAMPLE_NUM_PER_CLASS) +"shot.pkl"),map_location='cuda:0'))
         print("load relation network success")
     # Step 3: build graph
     print("Training...")
 
     last_accuracy = 0.0
+    f=open("/content/drive/MyDrive/class_based_acc_train.txt","w")
+    g=open("/content/drive/MyDrive/loss_epoch_2way.txt","w")
 
     for episode in range(EPISODE):
 
@@ -170,7 +172,7 @@ def main():
         # sample_dataloader is to obtain previous samples for compare
         # batch_dataloader is to batch samples for training
         task = tg.MiniImagenetTask(metatrain_folders,CLASS_NUM,SAMPLE_NUM_PER_CLASS,BATCH_NUM_PER_CLASS)
-        #batch_task=tg.MiniImagenetTask(metatest_folders,CLASS_NUM,SAMPLE_NUM_PER_CLASS,BATCH_NUM_PER_CLASS)
+        #print(task.labels)
         sample_dataloader = tg.get_mini_imagenet_data_loader(task,num_per_class=SAMPLE_NUM_PER_CLASS,split="train",shuffle=False)
         batch_dataloader = tg.get_mini_imagenet_data_loader(task,num_per_class=BATCH_NUM_PER_CLASS,split="test",shuffle=True)
 
@@ -193,8 +195,30 @@ def main():
 
         mse = nn.MSELoss().cuda(GPU)
         one_hot_labels = Variable(torch.zeros(BATCH_NUM_PER_CLASS*CLASS_NUM, CLASS_NUM).scatter_(1, batch_labels.view(-1,1), 1)).cuda(GPU)#dim=0 or 1
-        loss = mse(relations,one_hot_labels)
+        #print(relations)
+        _,predict_labels = torch.max(relations.data,1)
+        #print(predict_labels)
 
+        #print(one_hot_labels)
+        loss = mse(relations,one_hot_labels)
+        #print("loss: ",float(loss))
+        
+        counter_one=0
+        counter_zero=0
+
+        for j in range(len(predict_labels)):
+          if predict_labels[j]==one_hot_labels[j][1]:
+            if predict_labels[j]==0:
+              counter_zero+=1
+            elif predict_labels[j]==1:
+              counter_one+=1
+
+        #print("true zeros: ",counter_zero)
+        #print("true ones: ",counter_one)
+        
+        f.write(list(task.labels.keys())[0].split("/")[4]+"/"+str(counter_zero)+"/15\n")
+        f.write(list(task.labels.keys())[1].split("/")[4]+"/"+str(counter_one)+"/15\n")
+        g.write(str(episode)+","+str(float(loss))+"\n")
         #print(sample_labels)
         #print(batch_labels)
         #print(one_hot_labels)

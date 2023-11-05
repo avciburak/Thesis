@@ -161,18 +161,19 @@ def main():
             accuracies = []
             for i in range(TEST_EPISODE):
                 
+                total_four_counter=0
+                total_three_counter=0
+                total_two_counter=0
                 total_one_counter=0
                 total_zero_counter=0
                 total_rewards = 0
                 counter = 0
-                task = tg.MiniImagenetTask(metatrain_folders,CLASS_NUM,1,15)
-                #task = tg.MiniImagenetTask(metatest_folders,CLASS_NUM,1,15)
+                task = tg.MiniImagenetTask(metatest_folders,CLASS_NUM,1,15)
                 #print(task.labels)
                 sample_dataloader = tg.get_mini_imagenet_data_loader(task,num_per_class=1,split="train",shuffle=False)
                 
 
                 num_per_class = 3
-                #test_dataloader = tg.get_mini_imagenet_data_loader(task,num_per_class=num_per_class,split="train",shuffle=True)
                 test_dataloader = tg.get_mini_imagenet_data_loader(task,num_per_class=num_per_class,split="test",shuffle=True)
                 sample_images,sample_labels = next(iter(sample_dataloader))
                 #print(sample_labels)
@@ -195,6 +196,9 @@ def main():
                     #print(test_labels)
 
                     rewards=[]
+                    counter_four=0
+                    counter_three=0
+                    counter_two=0
                     counter_one=0
                     counter_zero=0
                     for j in range(batch_size):
@@ -204,14 +208,25 @@ def main():
                           counter_zero+=1
                         elif predict_labels[j]==1:
                           counter_one+=1
+                        elif predict_labels[j]==2:
+                          counter_two+=1
+                        elif predict_labels[j]==3:
+                          counter_three+=1
+                        elif predict_labels[j]==4:
+                          counter_four+=1
                       else:
                         rewards.append(0)
                     #print("true zeros: ",counter_zero)
                     #print("true ones: ",counter_one)
+                    #print("true twos: ",counter_two)
+                    #print("true threes: ",counter_three)
+                    #print("true fourss: ",counter_four)
+
+                    total_four_counter+=counter_four
+                    total_three_counter+=counter_three
+                    total_two_counter+=counter_two
                     total_one_counter+=counter_one
                     total_zero_counter+=counter_zero
-
-
 
                     #rewards = [1 if predict_labels[j]==test_labels[j] else 0 for j in range(batch_size)]
 
@@ -221,8 +236,17 @@ def main():
                 #print("total: ",counter)
                 #print(list(task.labels.keys())[0].split("/")[4],"total zeros: ",total_zero_counter,15)
                 #print(list(task.labels.keys())[1].split("/")[4],"total ones: ",total_one_counter,15)
-                f.write(list(task.labels.keys())[0].split("/")[4]+"/"+str(total_zero_counter)+"/"+str(counter/2)+"\n")
-                f.write(list(task.labels.keys())[1].split("/")[4]+"/"+str(total_one_counter)+"/"+str(counter/2)+"\n")
+                #print(list(task.labels.keys())[2].split("/")[4],"total twos: ",total_two_counter,15)
+                #print(list(task.labels.keys())[3].split("/")[4],"total threes: ",total_three_counter,15)
+                #print(list(task.labels.keys())[4].split("/")[4],"total fours: ",total_four_counter,15)
+                
+                f.write(list(task.labels.keys())[0].split("/")[4]+"/"+str(total_zero_counter)+"/"+str(counter/5)+"\n")
+                f.write(list(task.labels.keys())[1].split("/")[4]+"/"+str(total_one_counter)+"/"+str(counter/5)+"\n")
+                f.write(list(task.labels.keys())[2].split("/")[4]+"/"+str(total_two_counter)+"/"+str(counter/5)+"\n")
+                f.write(list(task.labels.keys())[3].split("/")[4]+"/"+str(total_three_counter)+"/"+str(counter/5)+"\n")
+                f.write(list(task.labels.keys())[4].split("/")[4]+"/"+str(total_four_counter)+"/"+str(counter/5)+"\n")
+                
+                
                 accuracy = total_rewards/1.0/counter
                 accuracies.append(accuracy)
 
@@ -236,7 +260,7 @@ def main():
     f.close()
 
 
-
+#pls use FSL_Custom_Taskgenerator_Test with this
 
 
 if __name__ == '__main__':

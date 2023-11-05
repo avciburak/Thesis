@@ -20,6 +20,7 @@ import scipy as sp
 import scipy.stats
 from PIL import Image
 import torchvision.transforms as transforms
+from itertools import combinations
  
 
 parser = argparse.ArgumentParser(description="One Shot Visual Recognition")
@@ -198,9 +199,11 @@ def main():
 #    query_image_coordinates_splitted=query_image_coordinates_str.split(",")
 #    query_image_coordinates_raw=query_image_coordinates_splitted[1:5]
 #    query_image_coordinates_int=[int(x) for x in query_image_coordinates_raw]
-    query_bb_number=0
-    query_image=Image.open("/content/drive/MyDrive/groundtruth/frame1/bb0.jpg")
+    frame_number=0
+    query_image=Image.open("/content/drive/MyDrive/support/frame1/bb0.jpg")
     query_image_tensor=transform_ToTensor(query_image).to(torch.float32)
+
+    update_frames=[100,200,300,400,500]
 
     for support_folder in support_folders:
         bb_names=os.listdir(support_folders_path+support_folder+"/")
@@ -217,20 +220,23 @@ def main():
 #                                 query_image_coordinates_int[0]+query_image_coordinates_int[2],
 #                                 query_image_coordinates_int[1]+query_image_coordinates_int[3]]
 
+        bb_combinations=combinations(bb_names,2)
+
         frame_relations={}
         
-        for bb in bb_names:
+        #for bb in bb_names:
+        for pair in bb_combinations:
             tensor_sequence=[]
-            support_image=Image.open(support_folders_path+support_folder+"/"+bb)
+            support_image=Image.open(support_folders_path+support_folder+"/"+pair[0])
             support_image_tensor=transform_ToTensor(support_image).to(torch.float32)
-            """
+
             tensor_sequence.append(support_image_tensor)
-            for i in range(4):
-                comp_image=Image.open(comp_image_path)
-                comp_image_tensor=transform_ToTensor(comp_image).to(torch.float32)
-                tensor_sequence.append(comp_image_tensor)
+    
+            comp_image=Image.open(support_folders_path+support_folder+"/"+pair[1])
+            comp_image_tensor=transform_ToTensor(comp_image).to(torch.float32)
+            tensor_sequence.append(comp_image_tensor)
             sample_images=torch.stack(tensor_sequence)
-            """
+
         # read line only if first part is 1
         # then hold that line as string
         # split the string by comma into a list
@@ -241,7 +247,8 @@ def main():
     #sample_images=torch.stack(images,dim=0).to(torch.float64)
 
     # calculate features
-            sample_features = feature_encoder(Variable(support_image_tensor.unsqueeze(0)).to(torch.float32).cuda(GPU)) # 5x64
+            #sample_features = feature_encoder(Variable(support_image_tensor.unsqueeze(0)).to(torch.float32).cuda(GPU)) # 5x64
+            sample_features = feature_encoder(Variable(sample_images).to(torch.float32).cuda(GPU)) # 5x64
             sample_features = sample_features.view(CLASS_NUM,SAMPLE_NUM_PER_CLASS,FEATURE_DIM,19,19)
             sample_features = torch.sum(sample_features,1).squeeze(1)
             test_features = feature_encoder(Variable(query_image_tensor.unsqueeze(0).to(torch.float32)).cuda(GPU)) # 20x64
@@ -256,7 +263,7 @@ def main():
             relation_pairs = torch.cat((sample_features_ext,test_features_ext),2).view(-1,FEATURE_DIM*2,19,19)
             relations = relation_network(relation_pairs).view(-1,CLASS_NUM)
 
-            frame_relations[bb]=relations[0].tolist()[0]
+            frame_relations[pair[0]+"|"+pair[1]]=relations[0].tolist()[0]
         frame_relations=dict(sorted(frame_relations.items(), key=lambda item: item[1],reverse=True))
         #print(support_folder+" | "+str(frame_relations))
         
@@ -264,11 +271,11 @@ def main():
             print(support_folder+" | "+str(keys)+" | "+str(frame_relations[keys]))
             f.write(support_folder+" | "+str(keys)+" | "+str(frame_relations[keys])+"\n")
 
-        query_bb_number+=1
+        frame_number+=1
 
-        if query_bb_number%5==0:
-            query_image=Image.open(support_folders_path+support_folder+"/"+str(list(frame_relations.keys())[0]))
-            print(str(list(frame_relations.keys())[0]))
+        if frame_number in update_frames:
+            query_image=Image.open(support_folders_path+support_folder+"/"+str(list(frame_relations.keys())[0].split("|")[0]))
+            print(str(list(frame_relations.keys())[0].split("|")[0]))
             query_image_tensor=transform_ToTensor(query_image).to(torch.float32)
             #update_query=0
             

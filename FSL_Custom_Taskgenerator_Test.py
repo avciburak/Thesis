@@ -11,8 +11,6 @@ import matplotlib.pyplot as plt
 import numpy as np
 from torch.utils.data.sampler import Sampler
 
-car16_folder="/content/drive/MyDrive/car16_groundtruth"
-
 def imshow(img):
     npimg = img.numpy()
     plt.axis("off")
@@ -28,7 +26,7 @@ class Rotate(object):
 
 def mini_imagenet_folders():
     train_folder = '../datas/miniImagenet/train'
-    test_folder = '../datas/miniImagenet/val'
+    test_folder = '../datas/miniImagenet/test'
 
     metatrain_folders = [os.path.join(train_folder, label) \
                 for label in os.listdir(train_folder) \
@@ -55,10 +53,10 @@ class MiniImagenetTask(object):
         self.test_num = test_num
 
         class_folders = random.sample(self.character_folders,self.num_classes)
-        #class_folders = [car16_folder]+random.sample(self.character_folders,1)
         labels = np.array(range(len(class_folders)))
         labels = dict(zip(class_folders, labels))
         self.labels=labels
+        #print(labels)
         samples = dict()
 
         self.train_roots = []
@@ -74,10 +72,12 @@ class MiniImagenetTask(object):
 
         self.train_labels = [labels[self.get_class(x)] for x in self.train_roots]
         self.test_labels = [labels[self.get_class(x)] for x in self.test_roots]
+        
+      
+    
 
     def get_class(self, sample):
         return os.path.join(*sample.split('/')[:-1])
-
 
 class FewShotDataset(Dataset):
 
@@ -116,6 +116,34 @@ class ClassBalancedSampler(Sampler):
     ''' Samples 'num_inst' examples each from 'num_cl' pools
         of examples of size 'num_per_class' '''
 
+    def __init__(self, num_cl, num_inst,shuffle=True):
+
+        self.num_cl = num_cl
+        self.num_inst = num_inst
+        self.shuffle = shuffle
+
+    def __iter__(self):
+        # return a single list of indices, assuming that items will be grouped by class
+        if self.shuffle:
+            batches = [[i+j*self.num_inst for i in torch.randperm(self.num_inst)] for j in range(self.num_cl)]
+        else:
+            batches = [[i+j*self.num_inst for i in range(self.num_inst)] for j in range(self.num_cl)]
+        batches = [[batches[j][i] for j in range(self.num_cl)] for i in range(self.num_inst)]
+
+        if self.shuffle:
+            random.shuffle(batches)
+            for sublist in batches:
+                   random.shuffle(sublist)
+        batches = [item for sublist in batches for item in sublist]
+        return iter(batches)
+
+    def __len__(self):
+        return 1
+
+class ClassBalancedSamplerOld(Sampler):
+    ''' Samples 'num_inst' examples each from 'num_cl' pools
+        of examples of size 'num_per_class' '''
+
     def __init__(self, num_per_class, num_cl, num_inst,shuffle=True):
         self.num_per_class = num_per_class
         self.num_cl = num_cl
@@ -142,12 +170,11 @@ def get_mini_imagenet_data_loader(task, num_per_class=1, split='train',shuffle =
     normalize = transforms.Normalize(mean=[0.92206, 0.92206, 0.92206], std=[0.08426, 0.08426, 0.08426])
 
     dataset = MiniImagenet(task,split=split,transform=transforms.Compose([transforms.ToTensor(),normalize]))
-
     if split == 'train':
-        sampler = ClassBalancedSampler(num_per_class, task.num_classes, task.train_num,shuffle=shuffle)
+        sampler = ClassBalancedSamplerOld(num_per_class,task.num_classes, task.train_num,shuffle=shuffle)
+
     else:
-        sampler = ClassBalancedSampler(num_per_class, task.num_classes, task.test_num,shuffle=shuffle)
+        sampler = ClassBalancedSampler(task.num_classes, task.test_num,shuffle=shuffle)
 
     loader = DataLoader(dataset, batch_size=num_per_class*task.num_classes, sampler=sampler)
-
     return loader

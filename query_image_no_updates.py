@@ -143,11 +143,11 @@ def main():
     relation_network_optim = torch.optim.Adam(relation_network.parameters(),lr=LEARNING_RATE)
     relation_network_scheduler = StepLR(relation_network_optim,step_size=100000,gamma=0.5)
 
-    if os.path.exists(str("./models/miniimagenet_feature_encoder_" + str(CLASS_NUM+4) +"way_" + str(SAMPLE_NUM_PER_CLASS) +"shot.pkl")):
-        feature_encoder.load_state_dict(torch.load(str("./models/miniimagenet_feature_encoder_" + str(CLASS_NUM) +"way_" + str(SAMPLE_NUM_PER_CLASS) +"shot.pkl"),map_location='cuda:0'))
+    if os.path.exists(str("./models/miniimagenet_feature_encoder_" + str(CLASS_NUM+1) +"way_" + str(SAMPLE_NUM_PER_CLASS) +"shot.pkl")):
+        feature_encoder.load_state_dict(torch.load(str("./models/miniimagenet_feature_encoder_" + str(CLASS_NUM+1) +"way_" + str(SAMPLE_NUM_PER_CLASS) +"shot.pkl"),map_location='cuda:0'))
         print("load feature encoder success")
-    if os.path.exists(str("./models/miniimagenet_relation_network_"+ str(CLASS_NUM) +"way_" + str(SAMPLE_NUM_PER_CLASS) +"shot.pkl")):
-        relation_network.load_state_dict(torch.load(str("./models/miniimagenet_relation_network_"+ str(CLASS_NUM) +"way_" + str(SAMPLE_NUM_PER_CLASS) +"shot.pkl"),map_location='cuda:0'))
+    if os.path.exists(str("./models/miniimagenet_relation_network_"+ str(CLASS_NUM+1) +"way_" + str(SAMPLE_NUM_PER_CLASS) +"shot.pkl")):
+        relation_network.load_state_dict(torch.load(str("./models/miniimagenet_relation_network_"+ str(CLASS_NUM+1) +"way_" + str(SAMPLE_NUM_PER_CLASS) +"shot.pkl"),map_location='cuda:0'))
         print("load relation network success")
 
     def get_bb_number(image_name:str):
@@ -182,24 +182,29 @@ def main():
 
     # read image files
     #support_folders_path="/content/drive/MyDrive/support/"
-    #comp_image_path="/content/drive/MyDrive/support/frame1/bb11.jpg"
+    comp_image_path="/content/drive/MyDrive/support/frame2750/bb30879.jpg"
     #coordinates_path="/content/drive/MyDrive/group1_4.txt"
 
     #query_image_path="/content/drive/MyDrive/car16/frame1/bb0.jpg"
-    query_image_path="/content/drive/MyDrive/car16_groundtruth/frame1/bb0.jpg"
-    support_folders_path="/content/drive/MyDrive/car16/"
+    #query_image_path="/content/drive/MyDrive/car16_groundtruth/frame1/bb0.jpg"
+    query_image_path="/content/drive/MyDrive/support/frame1/bb0.jpg"
+    #support_folders_path="/content/drive/MyDrive/car16/"
+    support_folders_path="/content/drive/MyDrive/support/"
     #comp_image_path="/content/drive/MyDrive/car16/frame1992/bb2674.jpg"
-    groundtruth_folders_path="/content/drive/MyDrive/car16_groundtruth/"
+    #groundtruth_folders_path="/content/drive/MyDrive/car16_groundtruth/"
+    #groundtruth_folders_path="/content/drive/MyDrive/groundtruth/"
 
     #coordinates_path="/content/drive/MyDrive/group1_4.txt"
     
     support_folders=os.listdir(support_folders_path)
     support_folders.sort(key=get_frame_number)
-    groundtruth_folders=os.listdir(groundtruth_folders_path)
-    groundtruth_folders.sort(key=get_frame_number)
+    #groundtruth_folders=os.listdir(groundtruth_folders_path)
+    #groundtruth_folders.sort(key=get_frame_number)
     #file_to_write='/content/drive/MyDrive/car16_no_update_scores.txt'
-    file_to_write='/content/drive/MyDrive/car16_with_update_scores.txt'
+    #file_to_write='/content/drive/MyDrive/car16_with_update_scores.txt'
     #file_to_write='/content/drive/MyDrive/car16_with_gt_update_scores.txt'
+    file_to_write='/content/drive/MyDrive/group1_query_no_update_2way.txt'
+
 
 
     f=open(file_to_write, 'w')
@@ -227,17 +232,18 @@ def main():
         frame_relations={}
         sorted_relaitons=[]
         for bb in bb_names:
-            #tensor_sequence=[]
+            tensor_sequence=[]
             support_image=Image.open(support_folders_path+support_folder+"/"+bb)
             support_image_tensor=transform_ToTensor(support_image).to(torch.float32)
-            """
+            
             tensor_sequence.append(support_image_tensor)
-            for i in range(4):
+            for i in range(1):
                 comp_image=Image.open(comp_image_path)
                 comp_image_tensor=transform_ToTensor(comp_image).to(torch.float32)
                 tensor_sequence.append(comp_image_tensor)
             sample_images=torch.stack(tensor_sequence)
-            """
+            
+           
         # read line only if first part is 1
         # then hold that line as string
         # split the string by comma into a list
@@ -248,8 +254,8 @@ def main():
     #sample_images=torch.stack(images,dim=0).to(torch.float64)
 
     # calculate features
-            #sample_features = feature_encoder(Variable(sample_images).to(torch.float32).cuda(GPU)) # 5x64
-            sample_features = feature_encoder(Variable(support_image_tensor).to(torch.float32).cuda(GPU)) # 5x64
+            sample_features = feature_encoder(Variable(sample_images).to(torch.float32).cuda(GPU)) # 5x64
+            #sample_features = feature_encoder(Variable(support_image_tensor.unsqueeze(0)).to(torch.float32).cuda(GPU)) # 5x64
             sample_features = sample_features.view(CLASS_NUM,SAMPLE_NUM_PER_CLASS,FEATURE_DIM,19,19)
             sample_features = torch.sum(sample_features,1).squeeze(1)
             test_features = feature_encoder(Variable(query_image_tensor.unsqueeze(0).to(torch.float32)).cuda(GPU)) # 20x64
@@ -268,10 +274,12 @@ def main():
         #print(support_folder+" | "+str(frame_relations))
         
         for keys in frame_relations.keys():
-            print(support_folder+" | "+str(keys)+" | "+str(frame_relations[keys]))
+            #print(support_folder+" | "+str(keys)+" | "+str(frame_relations[keys]))
+            print(support_folder+" | "+str(keys)+" | "+str(frame_relations[keys]),frame_relations)
             f.write(support_folder+" | "+str(keys)+" | "+str(frame_relations[keys])+"\n")
 
-
+    f.close()
+"""
         if len(os.listdir(support_folders_path+support_folder+"/"))!=0:
 
             query_bb_number+=1
@@ -286,8 +294,14 @@ def main():
             #update_query=0
         else:
             pass
+"""
+    
 
-        """"
+
+
+        
+
+"""
         if len(os.listdir(support_folders_path+support_folder+"/"))!=0:
 
             query_bb_number+=1
@@ -303,10 +317,8 @@ def main():
         else:
             pass
         
-        """
-    
-    f.close()
-    #c.close()
+"""
+
 """
 
             raw_coordinates=c.readline()
